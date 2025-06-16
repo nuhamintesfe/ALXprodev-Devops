@@ -1,23 +1,58 @@
 #!/bin/bash
 
-POKEMON_LIST=("bulbasaur" "ivysaur" "venusaur" "charmander" "charmeleon")
-OUTPUT_DIR="pokemon_data_parallel"
-mkdir -p "$OUTPUT_DIR"
+# Directory to save data
+DATA_DIR="pokemon_data_parallel"
+mkdir -p "$DATA_DIR"
 
-echo "Fetching Pokémon data in parallel..."
+# Array of Pokémon names to fetch
+POKEMONS=(bulbasaur ivysaur venusaur charmander charmeleon)
 
-for pokemon in "${POKEMON_LIST[@]}"; do
-  {
-    echo "Fetching $pokemon..."
-    response=$(curl -s -w "%{http_code}" -o "$OUTPUT_DIR/$pokemon.json" "https://pokeapi.co/api/v2/pokemon/$pokemon")
-    if [[ $response -eq 200 ]]; then
-      echo "✅ $pokemon fetched successfully."
-    else
-      echo "❌ Failed to fetch $pokemon (HTTP $response)"
-    fi
-  } &
+# Timeout in seconds for each background process
+TIMEOUT=10
+
+fetch_pokemon() {
+  local name=$1
+  echo "Fetching $name..."
+  # Simulate API call with curl (replace with actual API if needed)
+  curl -s "https://pokeapi.co/api/v2/pokemon/$name" -o "$DATA_DIR/$name.json"
+  if [ $? -eq 0 ]; then
+    echo "✅ $name fetched successfully."
+  else
+    echo "❌ Failed to fetch $name."
+  fi
+}
+
+# Start fetches in background and save PIDs
+pids=()
+for p in "${POKEMONS[@]}"; do
+  fetch_pokemon "$p" &
+  pids+=($!)
 done
 
-wait  # wait for all background jobs to complete
+# Track start time for timeout
+start_time=$(date +%s)
+
+# Monitor background jobs and kill if timeout exceeded
+while [ ${#pids[@]} -gt 0 ]; do
+  for i in "${!pids[@]}"; do
+    pid=${pids[i]}
+    if ! kill -0 "$pid" 2>/dev/null; then
+      # Process ended
+      unset 'pids[i]'
+    else
+      # Check elapsed time
+      now=$(date +%s)
+      elapsed=$((now - start_time))
+      if [ $elapsed -ge $TIMEOUT ]; then
+        echo "Timeout reached: killing process $pid"
+        kill -9 "$pid"
+        unset 'pids[i]'
+      fi
+    fi
+  done
+  # Compact the array to remove gaps
+  pids=("${pids[@]}")
+  sleep 1
+done
 
 echo "✅ All data fetched in parallel!"
